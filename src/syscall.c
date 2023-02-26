@@ -6,6 +6,10 @@
 #include "proc.h"
 #include "x86.h"
 #include "syscall.h"
+#include "spinlock.h"
+
+static int g_read_count = 0;
+extern struct spinlock read_count_lock;
 
 // User code makes a system call with INT T_SYSCALL.
 // System call number in %eax.
@@ -103,29 +107,31 @@ extern int sys_unlink(void);
 extern int sys_wait(void);
 extern int sys_write(void);
 extern int sys_uptime(void);
+extern int sys_getreadcount(void);
 
 static int (*syscalls[])(void) = {
-[SYS_fork]    sys_fork,
-[SYS_exit]    sys_exit,
-[SYS_wait]    sys_wait,
-[SYS_pipe]    sys_pipe,
-[SYS_read]    sys_read,
-[SYS_kill]    sys_kill,
-[SYS_exec]    sys_exec,
-[SYS_fstat]   sys_fstat,
-[SYS_chdir]   sys_chdir,
-[SYS_dup]     sys_dup,
-[SYS_getpid]  sys_getpid,
-[SYS_sbrk]    sys_sbrk,
-[SYS_sleep]   sys_sleep,
-[SYS_uptime]  sys_uptime,
-[SYS_open]    sys_open,
-[SYS_write]   sys_write,
-[SYS_mknod]   sys_mknod,
-[SYS_unlink]  sys_unlink,
-[SYS_link]    sys_link,
-[SYS_mkdir]   sys_mkdir,
-[SYS_close]   sys_close,
+[SYS_fork]           sys_fork,
+[SYS_exit]           sys_exit,
+[SYS_wait]           sys_wait,
+[SYS_pipe]           sys_pipe,
+[SYS_read]           sys_read,
+[SYS_kill]           sys_kill,
+[SYS_exec]           sys_exec,
+[SYS_fstat]          sys_fstat,
+[SYS_chdir]          sys_chdir,
+[SYS_dup]            sys_dup,
+[SYS_getpid]         sys_getpid,
+[SYS_sbrk]           sys_sbrk,
+[SYS_sleep]          sys_sleep,
+[SYS_uptime]         sys_uptime,
+[SYS_open]           sys_open,
+[SYS_write]          sys_write,
+[SYS_mknod]          sys_mknod,
+[SYS_unlink]         sys_unlink,
+[SYS_link]           sys_link,
+[SYS_mkdir]          sys_mkdir,
+[SYS_close]          sys_close,
+[SYS_getreadcount]   sys_getreadcount,
 };
 
 void
@@ -136,6 +142,18 @@ syscall(void)
 
   num = curproc->tf->eax;
   if(num > 0 && num < NELEM(syscalls) && syscalls[num]) {
+    if (num == SYS_getreadcount){
+        acquire(&read_count_lock);
+        curproc->read_count = g_read_count;
+        release(&read_count_lock);
+    }
+    if (num == SYS_read){
+    // If the current syscall was a read call then append
+        acquire(&read_count_lock);
+        g_read_count++;
+        release(&read_count_lock);
+    }
+
     curproc->tf->eax = syscalls[num]();
   } else {
     cprintf("%d %s: unknown sys call %d\n",
